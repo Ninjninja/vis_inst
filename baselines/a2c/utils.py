@@ -39,23 +39,31 @@ def ortho_init(scale=1.0):
         return (scale * q[:shape[0], :shape[1]]).astype(np.float32)
     return _ortho_init
 
-def conv(x, scope, nf, rf, stride, pad='VALID', act=tf.nn.relu, init_scale=1.0):
+def conv(x, scope, *, nf, rf, stride, pad='VALID', init_scale=1.0, data_format='NHWC'):
+    if data_format == 'NHWC':
+        channel_ax = 3
+        strides = [1, stride, stride, 1]
+        bshape = [1, 1, 1, nf]
+    elif data_format == 'NCHW':
+        channel_ax = 1
+        strides = [1, 1, stride, stride]
+        bshape = [1, nf, 1, 1]
+    else:
+        raise NotImplementedError
+    nin = x.get_shape()[channel_ax].value
+    wshape = [rf, rf, nin, nf]
     with tf.variable_scope(scope):
-        nin = x.get_shape()[3].value
-        w = tf.get_variable("w", [rf, rf, nin, nf], initializer=ortho_init(init_scale))
-        b = tf.get_variable("b", [nf], initializer=tf.constant_initializer(0.0))
-        z = tf.nn.conv2d(x, w, strides=[1, stride, stride, 1], padding=pad)+b
-        h = act(z)
-        return h
+        w = tf.get_variable("w", wshape, initializer=ortho_init(init_scale))
+        b = tf.get_variable("b", [1, nf, 1, 1], initializer=tf.constant_initializer(0.0))
+        if data_format == 'NHWC': b = tf.reshape(b, bshape)
+        return b + tf.nn.conv2d(x, w, strides=strides, padding=pad, data_format=data_format)
 
-def fc(x, scope, nh, act=tf.nn.relu, init_scale=1.0):
+def fc(x, scope, nh, *, init_scale=1.0, init_bias=0.0):
     with tf.variable_scope(scope):
         nin = x.get_shape()[1].value
         w = tf.get_variable("w", [nin, nh], initializer=ortho_init(init_scale))
-        b = tf.get_variable("b", [nh], initializer=tf.constant_initializer(0.0))
-        z = tf.matmul(x, w)+b
-        h = act(z)
-        return h
+        b = tf.get_variable("b", [nh], initializer=tf.constant_initializer(init_bias))
+        return tf.matmul(x, w)+b
 
 def batch_to_seq(h, nbatch, nsteps, flat=False):
     if flat:
@@ -162,9 +170,34 @@ def constant(p):
 def linear(p):
     return 1-p
 
+def middle_drop(p):
+    eps = 0.75
+    if 1-p<eps:
+        return eps*0.1
+    return 1-p
+
+def double_linear_con(p):
+    p *= 2
+    eps = 0.125
+    if 1-p<eps:
+        return eps
+    return 1-p
+
+def double_middle_drop(p):
+    eps1 = 0.75
+    eps2 = 0.25
+    if 1-p<eps1:
+        if 1-p<eps2:
+            return eps2*0.5
+        return eps1*0.1
+    return 1-p
+
 schedules = {
     'linear':linear,
-    'constant':constant
+    'constant':constant,
+    'double_linear_con': double_linear_con,
+    'middle_drop': middle_drop,
+    'double_middle_drop': double_middle_drop
 }
 
 class Scheduler(object):
