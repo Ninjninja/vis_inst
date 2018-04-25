@@ -8,6 +8,7 @@ from baselines import logger
 from collections import deque
 from baselines.common import explained_variance
 
+
 class Model(object):
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
                 nsteps, ent_coef, vf_coef, max_grad_norm):
@@ -23,6 +24,7 @@ class Model(object):
         OLDVPRED = tf.placeholder(tf.float32, [None])
         LR = tf.placeholder(tf.float32, [])
         CLIPRANGE = tf.placeholder(tf.float32, [])
+        MASS = tf.placeholder(tf.float32, [])
 
         neglogpac = train_model.pd.neglogp(A)
         entropy = tf.reduce_mean(train_model.pd.entropy())
@@ -39,6 +41,15 @@ class Model(object):
         approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
+        supervised_loss = tf.losses.mean_squared_error(train_model.prediction, MASS)
+
+        with tf.variable_scope('model/prediction'):
+            supervised_params = tf.trainable_variables()
+        supervised_grads = tf.gradients(supervised_loss,supervised_params)
+        supervised_grads = list(zip(supervised_grads, supervised_params))
+        trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+        _supervised_train = trainer.apply_gradients(supervised_grads)
+
         with tf.variable_scope('model'):
             params = tf.trainable_variables()
         grads = tf.gradients(loss, params)
@@ -51,13 +62,13 @@ class Model(object):
         def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
             advs = returns - values
             advs = (advs - advs.mean()) / (advs.std() + 1e-8)
-            td_map = {train_model.X:obs, A:actions, ADV:advs, R:returns, LR:lr,
+            td_map = {train_model.X:obs, A:actions[:,:-1], ADV:advs, R:returns, LR:lr,
                     CLIPRANGE:cliprange, OLDNEGLOGPAC:neglogpacs, OLDVPRED:values}
             if states is not None:
                 td_map[train_model.S] = states
                 td_map[train_model.M] = masks
             return sess.run(
-                [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
+                [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train, _supervised_train],
                 td_map
             )[:-1]
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']

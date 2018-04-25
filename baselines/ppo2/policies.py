@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 from baselines.a2c.utils import conv, fc, conv_to_fc, batch_to_seq, seq_to_batch, lstm, lnlstm
 from baselines.common.distributions import make_pdtype
+from gym import spaces
 
 def nature_cnn(unscaled_images):
     """
@@ -62,7 +63,7 @@ class LstmPolicy(object):
 
         nh, nw, nc = ob_space.shape
         ob_shape = (nbatch, nh, nw, nc)
-        nact = ac_space.n
+        nact = ac_space.shape[0]-1
         X = tf.placeholder(tf.uint8, ob_shape) #obs
         M = tf.placeholder(tf.float32, [nbatch]) #mask (done t-1)
         S = tf.placeholder(tf.float32, [nenv, nlstm*2]) #states
@@ -72,11 +73,16 @@ class LstmPolicy(object):
             ms = batch_to_seq(M, nenv, nsteps)
             h5, snew = lstm(xs, ms, S, 'lstm1', nh=nlstm)
             h5 = seq_to_batch(h5)
+            h6 = fc(h5,'prediction_fc',256)
+            prediction = tf.nn.relu(fc(h6,'prediction_out',1))
             pi = fc(h5, 'pi', nact)
             vf = fc(h5, 'v', 1)
+            logstd = tf.get_variable(name="logstd", shape=[1, nact],
+                initializer=tf.zeros_initializer())
 
-        self.pdtype = make_pdtype(ac_space)
-        self.pd = self.pdtype.pdfromflat(pi)
+        pdparam = tf.concat([pi, pi * 0.0 + logstd], axis=1)
+        self.pdtype = make_pdtype(spaces.Box(ac_space.low[0],ac_space.high[0],[nact,]))
+        self.pd = self.pdtype.pdfromflat(pdparam)
 
         v0 = vf[:, 0]
         a0 = self.pd.sample()
@@ -84,7 +90,9 @@ class LstmPolicy(object):
         self.initial_state = np.zeros((nenv, nlstm*2), dtype=np.float32)
 
         def step(ob, state, mask):
-            return sess.run([a0, v0, snew, neglogp0], {X:ob, S:state, M:mask})
+            prediction_out, a0_out, v0_out, snew_out, neglogp0_out = sess.run([prediction, a0, v0, snew, neglogp0], {X:ob, S:state, M:mask})
+            return np.concatenate([a0_out, prediction_out], axis=-1), v0_out, snew_out, neglogp0_out
+
 
         def value(ob, state, mask):
             return sess.run(v0, {X:ob, S:state, M:mask})
