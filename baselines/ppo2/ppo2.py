@@ -24,7 +24,7 @@ class Model(object):
         OLDVPRED = tf.placeholder(tf.float32, [None])
         LR = tf.placeholder(tf.float32, [])
         CLIPRANGE = tf.placeholder(tf.float32, [])
-        MASS = tf.placeholder(tf.float32, [])
+        MASS = tf.placeholder(tf.float32, [None, 1])
 
         neglogpac = train_model.pd.neglogp(A)
         entropy = tf.reduce_mean(train_model.pd.entropy())
@@ -47,8 +47,8 @@ class Model(object):
             supervised_params = tf.trainable_variables()
         supervised_grads = tf.gradients(supervised_loss,supervised_params)
         supervised_grads = list(zip(supervised_grads, supervised_params))
-        trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
-        _supervised_train = trainer.apply_gradients(supervised_grads)
+        trainer_grad_desc = tf.train.GradientDescentOptimizer(learning_rate=LR)
+        _supervised_train = trainer_grad_desc.apply_gradients(supervised_grads)
 
         with tf.variable_scope('model'):
             params = tf.trainable_variables()
@@ -59,11 +59,11 @@ class Model(object):
         trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
         _train = trainer.apply_gradients(grads)
 
-        def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
+        def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, mass, states=None):
             advs = returns - values
             advs = (advs - advs.mean()) / (advs.std() + 1e-8)
             td_map = {train_model.X:obs, A:actions[:,:-1], ADV:advs, R:returns, LR:lr,
-                    CLIPRANGE:cliprange, OLDNEGLOGPAC:neglogpacs, OLDVPRED:values}
+                      CLIPRANGE: cliprange, OLDNEGLOGPAC: neglogpacs, OLDVPRED: values, MASS: mass}
             if states is not None:
                 td_map[train_model.S] = states
                 td_map[train_model.M] = masks
@@ -110,7 +110,7 @@ class Runner(object):
         self.dones = [False for _ in range(nenv)]
 
     def run(self):
-        mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
+        mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs, mb_mass = [], [], [], [], [], [], []
         mb_states = self.states
         epinfos = []
         for _ in range(self.nsteps):
@@ -120,14 +120,18 @@ class Runner(object):
             mb_values.append(values)
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(self.dones)
-            self.obs[:], rewards, self.dones, infos = self.env.step(actions)
+            obs, rewards, self.dones, infos = self.env.step(actions)
+            self.obs[:] = obs['observation']
+            mass = obs['mass']
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
             mb_rewards.append(rewards)
+            mb_mass.append(mass)
         #batch of steps to batch of rollouts
         mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
+        mb_mass = np.asarray(mb_mass, dtype=np.float32)
         mb_actions = np.asarray(mb_actions)
         mb_values = np.asarray(mb_values, dtype=np.float32)
         mb_neglogpacs = np.asarray(mb_neglogpacs, dtype=np.float32)
@@ -147,8 +151,8 @@ class Runner(object):
             delta = mb_rewards[t] + self.gamma * nextvalues * nextnonterminal - mb_values[t]
             mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextnonterminal * lastgaelam
         mb_returns = mb_advs + mb_values
-        return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs)),
-            mb_states, epinfos)
+        return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, mb_mass)),
+                mb_states, epinfos)
 # obs, returns, masks, actions, values, neglogpacs, states = runner.run()
 def sf01(arr):
     """
@@ -200,7 +204,7 @@ def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
         frac = 1.0 - (update - 1.0) / nupdates
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
-        obs, returns, masks, actions, values, neglogpacs, states, epinfos = runner.run() #pylint: disable=E0632
+        obs, returns, masks, actions, values, neglogpacs, mass, states, epinfos = runner.run()  # pylint: disable=E0632
         epinfobuf.extend(epinfos)
         mblossvals = []
         if states is None: # nonrecurrent version
@@ -224,7 +228,7 @@ def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
                     end = start + envsperbatch
                     mbenvinds = envinds[start:end]
                     mbflatinds = flatinds[mbenvinds].ravel()
-                    slices = (arr[mbflatinds] for arr in (obs, returns, masks, actions, values, neglogpacs))
+                    slices = (arr[mbflatinds] for arr in (obs, returns, masks, actions, values, neglogpacs, mass))
                     mbstates = states[mbenvinds]
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices, mbstates))
 

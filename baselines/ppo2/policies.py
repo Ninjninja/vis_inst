@@ -74,7 +74,7 @@ class LstmPolicy(object):
             h5, snew = lstm(xs, ms, S, 'lstm1', nh=nlstm)
             h5 = seq_to_batch(h5)
             h6 = fc(h5,'prediction_fc',256)
-            prediction = tf.nn.relu(fc(h6,'prediction_out',1))
+            self.prediction = tf.nn.relu(fc(h6, 'prediction_out', 1))
             pi = fc(h5, 'pi', nact)
             vf = fc(h5, 'v', 1)
             logstd = tf.get_variable(name="logstd", shape=[1, nact],
@@ -90,7 +90,8 @@ class LstmPolicy(object):
         self.initial_state = np.zeros((nenv, nlstm*2), dtype=np.float32)
 
         def step(ob, state, mask):
-            prediction_out, a0_out, v0_out, snew_out, neglogp0_out = sess.run([prediction, a0, v0, snew, neglogp0], {X:ob, S:state, M:mask})
+            prediction_out, a0_out, v0_out, snew_out, neglogp0_out = sess.run([self.prediction, a0, v0, snew, neglogp0],
+                                                                              {X: ob, S: state, M: mask})
             return np.concatenate([a0_out, prediction_out], axis=-1), v0_out, snew_out, neglogp0_out
 
 
