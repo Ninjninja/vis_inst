@@ -43,11 +43,11 @@ class Model(object):
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
         supervised_loss = tf.losses.mean_squared_error(train_model.prediction, MASS)
 
-        with tf.variable_scope('model/prediction'):
+        with tf.variable_scope('predictor'):
             supervised_params = tf.trainable_variables()
         supervised_grads = tf.gradients(supervised_loss,supervised_params)
         supervised_grads = list(zip(supervised_grads, supervised_params))
-        trainer_grad_desc = tf.train.GradientDescentOptimizer(learning_rate=LR)
+        trainer_grad_desc = tf.train.GradientDescentOptimizer(learning_rate=1e-5)
         _supervised_train = trainer_grad_desc.apply_gradients(supervised_grads)
 
         with tf.variable_scope('model'):
@@ -70,7 +70,7 @@ class Model(object):
             return sess.run(
                 [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train, _supervised_train],
                 td_map
-            )[:-1]
+            )[:-2]
         self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
 
         def save(save_path):
@@ -101,7 +101,8 @@ class Runner(object):
         self.env = env
         self.model = model
         nenv = env.num_envs
-        self.obs = np.zeros((nenv,) + env.observation_space.shape, dtype=model.train_model.X.dtype.name)
+        self.obs = np.zeros((nenv,) + env.observation_space.spaces['observation'].shape,
+                            dtype=model.train_model.X.dtype.name)
         self.obs[:] = env.reset()
         self.gamma = gamma
         self.lam = lam
@@ -178,7 +179,7 @@ def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
     total_timesteps = int(total_timesteps)
 
     nenvs = env.num_envs
-    ob_space = env.observation_space
+    ob_space = env.observation_space.spaces['observation']
     ac_space = env.action_space
     nbatch = nenvs * nsteps
     nbatch_train = nbatch // nminibatches

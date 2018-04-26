@@ -73,13 +73,13 @@ class LstmPolicy(object):
             ms = batch_to_seq(M, nenv, nsteps)
             h5, snew = lstm(xs, ms, S, 'lstm1', nh=nlstm)
             h5 = seq_to_batch(h5)
-            h6 = fc(h5,'prediction_fc',256)
-            self.prediction = tf.nn.relu(fc(h6, 'prediction_out', 1))
             pi = fc(h5, 'pi', nact)
             vf = fc(h5, 'v', 1)
             logstd = tf.get_variable(name="logstd", shape=[1, nact],
                 initializer=tf.zeros_initializer())
-
+        with tf.variable_scope('predictor', reuse=reuse):
+            h6 = fc(h5, 'prediction_fc', 256)
+            self.prediction = tf.nn.relu(fc(h6, 'prediction_out', 1))
         pdparam = tf.concat([pi, pi * 0.0 + logstd], axis=1)
         self.pdtype = make_pdtype(spaces.Box(ac_space.low[0],ac_space.high[0],[nact,]))
         self.pd = self.pdtype.pdfromflat(pdparam)

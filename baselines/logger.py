@@ -8,7 +8,7 @@ import datetime
 import tempfile
 from collections import defaultdict
 
-LOG_OUTPUT_FORMATS = ['stdout', 'log', 'csv']
+LOG_OUTPUT_FORMATS = ['stdout', 'log', 'csv', 'tensorboard']
 # Also valid: json, tensorboard
 
 DEBUG = 10
@@ -180,7 +180,9 @@ def make_output_format(format, ev_dir, log_suffix=''):
     elif format == 'csv':
         return CSVOutputFormat(osp.join(ev_dir, 'progress%s.csv' % log_suffix))
     elif format == 'tensorboard':
-        return TensorBoardOutputFormat(osp.join(ev_dir, 'tb%s' % log_suffix))
+        # return TensorBoardOutputFormat(osp.join(ev_dir, 'tb%s' % log_suffix))
+        return TensorBoardOutputFormat(ev_dir)
+
     else:
         raise ValueError('Unknown format specified: %s' % (format,))
 

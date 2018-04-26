@@ -30,7 +30,8 @@ class DummyVecEnv(VecEnv):
                 for t,x in enumerate(obs_tuple):
                     self.buf_obs[t][i] = x
             else:
-                self.buf_obs[0][i] = obs_tuple
+                self.buf_obs[0][i] = obs_tuple['mass']
+                self.buf_obs[1][i] = obs_tuple['observation']
         return (self._obs_from_buf(), np.copy(self.buf_rews), np.copy(self.buf_dones),
                 self.buf_infos.copy())
 
@@ -41,7 +42,8 @@ class DummyVecEnv(VecEnv):
                 for t,x in enumerate(obs_tuple):
                     self.buf_obs[t][i] = x
             else:
-                self.buf_obs[0][i] = obs_tuple
+                self.buf_obs[0][i] = obs_tuple['mass']
+                self.buf_obs[1][i] = obs_tuple['observation']
         return self._obs_from_buf()
 
     def close(self):

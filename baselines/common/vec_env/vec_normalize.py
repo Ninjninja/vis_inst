@@ -23,13 +23,14 @@ class VecNormalize(VecEnvWrapper):
 
         where 'news' is a boolean vector indicating whether each element is new.
         """
-        obs, rews, news, infos = self.venv.step_wait()
+        obs_tuple, rews, news, infos = self.venv.step_wait()
+        obs = obs_tuple[1]
         self.ret = self.ret * self.gamma + rews
         obs = self._obfilt(obs)
         if self.ret_rms:
             self.ret_rms.update(self.ret)
             rews = np.clip(rews / np.sqrt(self.ret_rms.var + self.epsilon), -self.cliprew, self.cliprew)
-        return obs, rews, news, infos
+        return {'observation': obs, 'mass': obs_tuple[0]}, rews, news, infos
 
     def _obfilt(self, obs):
         if self.ob_rms:
@@ -44,4 +45,5 @@ class VecNormalize(VecEnvWrapper):
         Reset all environments
         """
         obs = self.venv.reset()
+        obs = obs[1]
         return self._obfilt(obs)
