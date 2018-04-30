@@ -41,14 +41,10 @@ class Model(object):
         approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
-        supervised_loss = tf.losses.mean_squared_error(train_model.prediction, MASS)
+        # is_last_step = tf.cast(tf.logical_not(tf.equal(R, 0)), tf.float32)
+        supervised_loss = tf.losses.mean_squared_error((train_model.prediction), MASS)
 
-        with tf.variable_scope('predictor'):
-            supervised_params = tf.trainable_variables()
-        supervised_grads = tf.gradients(supervised_loss,supervised_params)
-        supervised_grads = list(zip(supervised_grads, supervised_params))
-        trainer_grad_desc = tf.train.GradientDescentOptimizer(learning_rate=1e-5)
-        _supervised_train = trainer_grad_desc.apply_gradients(supervised_grads)
+
 
         with tf.variable_scope('model'):
             params = tf.trainable_variables()
@@ -59,14 +55,25 @@ class Model(object):
         trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
         _train = trainer.apply_gradients(grads)
 
-        def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, mass, states=None):
+        with tf.variable_scope('predictor'):
+            supervised_params = tf.trainable_variables()
+        supervised_grads = tf.gradients(supervised_loss, supervised_params)
+        supervised_grads = list(zip(supervised_grads, supervised_params))
+        trainer_grad_desc = tf.train.GradientDescentOptimizer(learning_rate=1e-3)
+        _supervised_train = trainer.apply_gradients(supervised_grads)
+
+        def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, mass, states=None,
+                  states_predict=None):
             advs = returns - values
             advs = (advs - advs.mean()) / (advs.std() + 1e-8)
             td_map = {train_model.X:obs, A:actions[:,:-1], ADV:advs, R:returns, LR:lr,
                       CLIPRANGE: cliprange, OLDNEGLOGPAC: neglogpacs, OLDVPRED: values, MASS: mass}
             if states is not None:
                 td_map[train_model.S] = states
+                td_map[train_model.S_pred] = states_predict
                 td_map[train_model.M] = masks
+                for i in range(5):
+                    sess.run(_supervised_train, td_map)
             return sess.run(
                 [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train, _supervised_train],
                 td_map
@@ -108,14 +115,18 @@ class Runner(object):
         self.lam = lam
         self.nsteps = nsteps
         self.states = model.initial_state
+        self.states_predict = model.initial_state
         self.dones = [False for _ in range(nenv)]
 
     def run(self):
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs, mb_mass = [], [], [], [], [], [], []
         mb_states = self.states
+        mb_states_predict = self.states_predict
         epinfos = []
         for _ in range(self.nsteps):
-            actions, values, self.states, neglogpacs = self.model.step(self.obs, self.states, self.dones)
+            actions, values, self.states, self.states_predict, neglogpacs = self.model.step(self.obs, self.states,
+                                                                                            self.states_predict,
+                                                                                            self.dones)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
             mb_values.append(values)
@@ -123,6 +134,8 @@ class Runner(object):
             mb_dones.append(self.dones)
             obs, rewards, self.dones, infos = self.env.step(actions)
             self.obs[:] = obs['observation']
+            if self.dones:
+                self.states_predict = self.model.initial_state
             mass = obs['mass']
             for info in infos:
                 maybeepinfo = info.get('episode')
@@ -153,7 +166,7 @@ class Runner(object):
             mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextnonterminal * lastgaelam
         mb_returns = mb_advs + mb_values
         return (*map(sf01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, mb_mass)),
-                mb_states, epinfos)
+                mb_states, mb_states_predict, epinfos)
 # obs, returns, masks, actions, values, neglogpacs, states = runner.run()
 def sf01(arr):
     """
@@ -205,7 +218,7 @@ def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
         frac = 1.0 - (update - 1.0) / nupdates
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
-        obs, returns, masks, actions, values, neglogpacs, mass, states, epinfos = runner.run()  # pylint: disable=E0632
+        obs, returns, masks, actions, values, neglogpacs, mass, states, states_predict, epinfos = runner.run()  # pylint: disable=E0632
         epinfobuf.extend(epinfos)
         mblossvals = []
         if states is None: # nonrecurrent version
@@ -231,7 +244,8 @@ def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
                     mbflatinds = flatinds[mbenvinds].ravel()
                     slices = (arr[mbflatinds] for arr in (obs, returns, masks, actions, values, neglogpacs, mass))
                     mbstates = states[mbenvinds]
-                    mblossvals.append(model.train(lrnow, cliprangenow, *slices, mbstates))
+                    mbstates_predict = states_predict[mbenvinds]
+                    mblossvals.append(model.train(lrnow, cliprangenow, *slices, mbstates, mbstates_predict))
 
         lossvals = np.mean(mblossvals, axis=0)
         tnow = time.time()

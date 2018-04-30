@@ -33,7 +33,7 @@ def train(env_id, num_timesteps, seed):
 
     set_global_seeds(seed)
     policy = LstmPolicy
-    ppo2.learn(policy=policy, env=env, nsteps=3, nminibatches=1,
+    ppo2.learn(policy=policy, env=env, nsteps=100, nminibatches=1,
                lam=0.95, gamma=0.99, noptepochs=10, log_interval=1,
                ent_coef=0.00,
                lr=3e-4,

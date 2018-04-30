@@ -3,6 +3,7 @@ import tensorflow as tf
 from baselines.a2c.utils import conv, fc, conv_to_fc, batch_to_seq, seq_to_batch, lstm, lnlstm
 from baselines.common.distributions import make_pdtype
 from gym import spaces
+from tensorflow.python import debug as tf_debug
 
 def nature_cnn(unscaled_images):
     """
@@ -58,17 +59,21 @@ class LnLstmPolicy(object):
 
 class LstmPolicy(object):
 
-    def __init__(self, sess, ob_space, ac_space, nbatch, nsteps, nlstm=256, reuse=False):
+    def __init__(self, sess, ob_space, ac_space, nbatch, nsteps, nlstm=50, reuse=False):
         nenv = nbatch // nsteps
-
-        nh, nw, nc = ob_space.shape
-        ob_shape = (nbatch, nh, nw, nc)
+        # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+        # nh, nw, nc = ob_space.shape
+        # ob_shape = (nbatch, nh, nw, nc)
+        ob_shape = (nbatch,) + ob_space.shape
+        X = tf.placeholder(tf.float32, ob_shape)
         nact = ac_space.shape[0]-1
-        X = tf.placeholder(tf.uint8, ob_shape) #obs
-        M = tf.placeholder(tf.float32, [nbatch]) #mask (done t-1)
-        S = tf.placeholder(tf.float32, [nenv, nlstm*2]) #states
+        # X = tf.placeholder(tf.uint8, ob_shape) #obs
+        M = tf.placeholder(tf.float32, [nbatch], name='mask')  # mask (done t-1)
+        S = tf.placeholder(tf.float32, [nenv, nlstm * 2], name='state')  # states
+        S_pred = tf.placeholder(tf.float32, [nenv, nlstm * 2], name='predict_state')  # states
         with tf.variable_scope("model", reuse=reuse):
-            h = nature_cnn(X)
+            # h = nature_cnn(X)
+            h = tf.nn.tanh(fc(X, 'fc1', 20))
             xs = batch_to_seq(h, nenv, nsteps)
             ms = batch_to_seq(M, nenv, nsteps)
             h5, snew = lstm(xs, ms, S, 'lstm1', nh=nlstm)
@@ -77,9 +82,6 @@ class LstmPolicy(object):
             vf = fc(h5, 'v', 1)
             logstd = tf.get_variable(name="logstd", shape=[1, nact],
                 initializer=tf.zeros_initializer())
-        with tf.variable_scope('predictor', reuse=reuse):
-            h6 = fc(h5, 'prediction_fc', 256)
-            self.prediction = tf.nn.relu(fc(h6, 'prediction_out', 1))
         pdparam = tf.concat([pi, pi * 0.0 + logstd], axis=1)
         self.pdtype = make_pdtype(spaces.Box(ac_space.low[0],ac_space.high[0],[nact,]))
         self.pd = self.pdtype.pdfromflat(pdparam)
@@ -87,12 +89,27 @@ class LstmPolicy(object):
         v0 = vf[:, 0]
         a0 = self.pd.sample()
         neglogp0 = self.pd.neglogp(a0)
+
+        with tf.variable_scope('predictor', reuse=reuse):
+            # h = nature_cnn(X)
+            h = tf.nn.relu(fc(X, 'fc1', 20))
+            xs = batch_to_seq(h, nenv, nsteps)
+            ms = batch_to_seq(M, nenv, nsteps)
+            h5, snew_pred = lstm(xs, ms, S_pred, 'lstm1', nh=nlstm)
+            h5 = seq_to_batch(h5)
+            # h7 = (fc(a0, 'prediction_fc_action', 10))
+            # h6 = tf.concat([h7, h5],axis=1)
+            h7 = fc(h5, 'prediction_fc', 256)
+            self.prediction = tf.nn.relu(fc(h7, 'prediction_out', 1))
+
         self.initial_state = np.zeros((nenv, nlstm*2), dtype=np.float32)
 
-        def step(ob, state, mask):
-            prediction_out, a0_out, v0_out, snew_out, neglogp0_out = sess.run([self.prediction, a0, v0, snew, neglogp0],
-                                                                              {X: ob, S: state, M: mask})
-            return np.concatenate([a0_out, prediction_out], axis=-1), v0_out, snew_out, neglogp0_out
+        def step(ob, state, predict_state, mask):
+            prediction_out, a0_out, v0_out, snew_out, snew_predict_out, neglogp0_out = sess.run(
+                [self.prediction, a0, v0, snew, snew_pred, neglogp0],
+                {X: ob, S: state, S_pred: predict_state, M: mask})
+
+            return np.concatenate([a0_out, prediction_out], axis=-1), v0_out, snew_out, snew_predict_out, neglogp0_out
 
 
         def value(ob, state, mask):
@@ -101,6 +118,7 @@ class LstmPolicy(object):
         self.X = X
         self.M = M
         self.S = S
+        self.S_pred = S_pred
         self.pi = pi
         self.vf = vf
         self.step = step
