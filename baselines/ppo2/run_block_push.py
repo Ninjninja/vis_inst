@@ -25,7 +25,7 @@ def train(env_id, num_timesteps, seed):
 
     def make_env():
         env = gym.make(env_id)
-        env = bench.Monitor(env, logger.get_dir())
+        env = bench.Monitor(env, logger.get_dir(), allow_early_resets=True)
         return env
 
     env = DummyVecEnv([make_env])

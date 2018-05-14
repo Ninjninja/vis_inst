@@ -7,7 +7,7 @@ import tensorflow as tf
 from baselines import logger
 from collections import deque
 from baselines.common import explained_variance
-
+from baselines.ppo2.supervised_lstm_test import predict
 
 class Model(object):
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
@@ -119,29 +119,46 @@ class Runner(object):
         self.dones = [False for _ in range(nenv)]
 
     def run(self):
-        mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs, mb_mass = [], [], [], [], [], [], []
+        mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs, mb_mass, mb_history = [], [], [], [], [], [], [], []
         mb_states = self.states
         mb_states_predict = self.states_predict
         epinfos = []
+        self.env.reset()
         for _ in range(self.nsteps):
             actions, values, self.states, self.states_predict, neglogpacs = self.model.step(self.obs, self.states,
                                                                                             self.states_predict,
                                                                                             self.dones)
             mb_obs.append(self.obs.copy())
             mb_actions.append(actions)
+
             mb_values.append(values)
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(self.dones)
+            # action = np.random.uniform(-1, 1, 2)
+            action = np.array(actions[0, :-1])
+            # actions = np.concatenate([action, np.random.uniform(0.5, 4, 1)])
+
+            if (_) % 3 == 2 and _ != 0:
+                history = np.array(mb_history[-2:])
+                prediction1 = predict(history.reshape([2, 5]))
+                actions[0, -1] = prediction1
+
+                print(prediction1)
             obs, rewards, self.dones, infos = self.env.step(actions)
             self.obs[:] = obs['observation']
             if self.dones:
                 self.states_predict = self.model.initial_state
+                mb_history = []
+            else:
+                mb_history.append(np.concatenate([self.obs, action.reshape(1, 2)], axis=1)[:])
+
             mass = obs['mass']
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
             mb_rewards.append(rewards)
             mb_mass.append(mass)
+
         #batch of steps to batch of rollouts
         mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)

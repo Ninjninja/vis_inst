@@ -24,7 +24,7 @@ n_classes = 1
 # size of batch
 batch_size = 128
 
-x = tf.placeholder(tf.float32, [None, time_steps, n_input])
+x = tf.placeholder(tf.float32, [None, time_steps, n_input], name='x')
 y = tf.placeholder(tf.float32, [None, n_classes])
 
 
@@ -36,6 +36,7 @@ def simple_fc_network(x):
     outputs, _ = rnn.static_rnn(lstm_layer, input, dtype=tf.float32)
     print('out')
     prediction = tf.layers.dense(inputs=outputs[-1], units=1)
+    prediction = tf.identity(prediction, name='predict')
     return prediction
 
 
@@ -43,7 +44,7 @@ def simple_fc_network(x):
 # loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction,labels=y))
 prediction = simple_fc_network(x)
 loss = tf.reduce_mean(tf.losses.mean_squared_error(prediction, y))
-opt = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
+opt = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss, name='min_loss')
 
 # correct prediction
 correct_pred = tf.equal(tf.argmax(prediction, 1), tf.argmax(y, 1))
@@ -72,16 +73,16 @@ with tf.Session() as sess:
     #         print("__________________")
     mb_obs, mb_action, y1, x1 = [], [], [], []
     obs = env.reset()
-    pbs = env.reset()
+    obs = env.reset()
     mb_obs.append(obs['observation'])
-    for i in range(20000):
+    for i in range(30000):
         action = np.random.uniform(-1, 1, 2)
         obs, _, done, _ = env.step(np.concatenate([action, np.random.uniform(0.5, 4, 1)]))
         mb_obs.append(np.concatenate([obs['observation'], action]))
         mb_action.append(action)
         if (done):
             y1.append([obs['mass']])
-            x1.append(np.array(mb_obs))
+            x1.append(np.array(mb_obs[:-1]))
             obs = env.reset()
             mb_obs.append(np.concatenate([obs['observation'], action * 0]))
             mb_obs = []
@@ -102,4 +103,4 @@ with tf.Session() as sess:
             print("Loss ", los)
             print("__________________")
 
-    saver.save(sess, './mass_predict')
+    saver.save(sess, './mass_predict', global_step=20000)

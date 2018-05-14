@@ -2,16 +2,14 @@ import tensorflow as tf
 import gym
 import numpy as np
 
+env = gym.make('DartBlockPush-v0')
 
-#
-# env = gym.make('DartBlockPush-v0')
-#
-#
-# mb_obs =[]
-# obs = env.reset()
-# action = np.random.uniform(-1, 1, 2)
-# mb_obs.append(np.concatenate([obs['observation'], action * 0]))
+mb_obs = []
+obs = env.reset()
+action = np.random.uniform(-1, 1, 2)
+mb_obs.append(np.concatenate([obs['observation'], action * 0]))
 def predict(obs_seq):
+    # sess = tf.get_default_session()
     sess = tf.get_default_session()
     # First let's load meta graph and restore weights
     saver = tf.train.import_meta_graph(
@@ -27,19 +25,23 @@ def predict(obs_seq):
     feed_dict = {x: np.expand_dims(obs_seq, axis=0)}
     # print(sess.run(op_to_restore, feed_dict))
     return sess.run(op_to_restore, feed_dict)
-#
-# for i in range(4):
-#     action = np.random.uniform(-1, 1, 2)
-#     obs, _, done, _ = env.step(np.concatenate([action, np.random.uniform(0.5, 4, 1)]))
-#     #print(obs['mass'])
-#     mb_obs.append(np.concatenate([obs['observation'], action]))
-#     if (done):
-#         obs_seq = np.array(mb_obs)
-#         print(predict(obs_seq))
-#         obs = env.reset()
-#         action = np.random.uniform(-1, 1, 2)
-#         mb_obs = []
 
+# with tf.Session() as sess:
+#     for i in range(60):
+#         action = np.array([0.5,0.5])#np.random.uniform(-1, 1, 2)
+#         obs, _, done, _ = env.step(np.concatenate([action, np.random.uniform(0.5, 4, 1)]))
+#
+#         mb_obs.append(np.concatenate([obs['observation'], action]))
+#         if (i%3==1):
+#             print(obs['mass'])
+#             obs_seq = np.array(mb_obs[-2:])
+#             print(predict(obs_seq))
+#
+#         if (done):
+#             obs = env.reset()
+#             action = np.random.uniform(-1, 1, 2)
+#             mb_obs = []
+#
 
 # Now, access the op that you want to run.
 

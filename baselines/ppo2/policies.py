@@ -87,7 +87,7 @@ class LstmPolicy(object):
         self.pd = self.pdtype.pdfromflat(pdparam)
 
         v0 = vf[:, 0]
-        a0 = self.pd.sample()
+        a0 = tf.clip_by_value(self.pd.sample(), -1, 1)
         neglogp0 = self.pd.neglogp(a0)
 
         with tf.variable_scope('predictor', reuse=reuse):

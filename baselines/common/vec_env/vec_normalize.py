@@ -26,7 +26,7 @@ class VecNormalize(VecEnvWrapper):
         obs_tuple, rews, news, infos = self.venv.step_wait()
         obs = obs_tuple[1]
         self.ret = self.ret * self.gamma + rews
-        obs = self._obfilt(obs)
+        # obs = self._obfilt(obs)
         if self.ret_rms:
             self.ret_rms.update(self.ret)
             rews = np.clip(rews / np.sqrt(self.ret_rms.var + self.epsilon), -self.cliprew, self.cliprew)
