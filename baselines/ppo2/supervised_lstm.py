@@ -24,25 +24,28 @@ learning_rate = 0.005
 n_classes = 1
 # size of batch
 batch_size = 128
+# x = tf.placeholder(tf.float32, [None, time_steps, 3], name='x')
 
 x = tf.placeholder(tf.float32, [None, time_steps, 256, 256, 3], name='x')
 act = tf.placeholder(tf.float32, [None, time_steps, 2], name='action')
 y = tf.placeholder(tf.float32, [None, n_classes])
 
 
-def simple_fc_network(x):
-    out_weights = tf.Variable(tf.random_normal([num_units, n_classes]))
-    out_bias = tf.Variable(tf.random_normal([n_classes]))
-    input = tf.unstack(x, time_steps, axis=1)
-    lstm_layer = rnn.BasicLSTMCell(num_units, forget_bias=1)
-    outputs, _ = rnn.static_rnn(lstm_layer, input, dtype=tf.float32)
-    print('out')
-    prediction = tf.layers.dense(inputs=outputs[-1], units=1)
-    prediction = tf.identity(prediction, name='predict')
-    return prediction
+def simple_fc_network(input,act):
+    with tf.variable_scope('fc_model'):
+        x = tf.concat([input,act],2)
+        out_weights = tf.Variable(tf.random_normal([num_units, n_classes]))
+        out_bias = tf.Variable(tf.random_normal([n_classes]))
+        input = tf.unstack(x, time_steps, axis=1)
+        lstm_layer = rnn.BasicLSTMCell(num_units, forget_bias=1)
+        outputs, _ = rnn.static_rnn(lstm_layer, input, dtype=tf.float32)
+        print('out')
+        prediction = tf.layers.dense(inputs=outputs[-1], units=1)
+        prediction = tf.identity(prediction, name='predict')
+        return prediction
 
 
-def cnn_network(input, actions, is_training):
+def cnn_network(input, actions):
     with tf.variable_scope('cnn_model'):
         dropout = 0.25
         input1 = tf.reshape(input, shape=[-1,256,256,3])
@@ -79,7 +82,7 @@ def cnn_network(input, actions, is_training):
         return prediction
 # prediction=tf.matmul(outputs[-1],out_weights)+out_bias
 # loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction,labels=y))
-prediction = cnn_network(x, act, True)
+prediction = cnn_network(x, act)
 loss = tf.reduce_mean(tf.losses.mean_squared_error(prediction, y))
 opt = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss, name='min_loss')
 
