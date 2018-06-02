@@ -124,9 +124,9 @@ with tf.Session() as sess:
     obs = env.reset()
     obs = env.reset()
 
-    for i in range(300):
+    for i in range(120):
         count = 0
-        while count < 1:
+        while count < 100:
             action = np.random.uniform(-1, 1, 2)
             obs, rew, done, _ = env.step(np.concatenate([action, np.random.uniform(1, 4, 1)]))
 
@@ -155,9 +155,9 @@ with tf.Session() as sess:
         for j in range(10):
 
             if i < 100:
-                los, prediction, _,_, _ = sess.run([loss, prediction, opt, update_ops, merged], feed_dict={x: X_train, y: Y_train, act:X_train_act, phase: True})
+                los, prediction_out, _, _, _ = sess.run([loss, prediction, opt, update_ops, merged], feed_dict={x: X_train, y: Y_train, act:X_train_act, phase: True})
                 if j==0:
-                    print(los)
+                    print(np.concatenate([prediction_out,Y_train,prediction_out-Y_train], axis = 1),np.sqrt(los))
             else:
                 if i == 100:
                     print('test')
