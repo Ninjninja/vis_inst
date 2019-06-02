@@ -20,15 +20,16 @@ num_units = 128
 # rows of 28 pixels
 n_input = 5
 # learning rate for adam
-learning_rate = 0.005
+learning_rate = 0.0005
 # mnist is meant to be classified in 10 classes(0-9).
-n_classes = 1
+n_classes = 2
 # size of batch
 batch_size = 128
+action_shape = 4
 # x = tf.placeholder(tf.float32, [None, time_steps, 3], name='x')
 
 x = tf.placeholder(tf.float32, [None, time_steps, 256, 256, 3], name='x')
-act = tf.placeholder(tf.float32, [None, time_steps, 2], name='action')
+act = tf.placeholder(tf.float32, [None, time_steps, action_shape], name='action')
 y = tf.placeholder(tf.float32, [None, n_classes])
 phase = tf.placeholder(tf.bool, name='phase')
 
@@ -50,7 +51,7 @@ def cnn_network(input, actions, istraining):
     with tf.variable_scope('cnn_model', reuse=tf.AUTO_REUSE):
         dropout = 0.25
         input1 = tf.reshape(input, shape=[-1,256,256,3])
-        actions1 = tf.reshape(actions, shape = [-1,2])
+        actions1 = tf.reshape(actions, shape=[-1, 2 * n_classes])
         conv1 = tf.layers.conv2d(input1, 32, 16, activation=tf.nn.relu,kernel_initializer=tf.random_normal_initializer)
         conv1_n = tf.layers.batch_normalization(conv1, training=istraining)
 
@@ -73,14 +74,15 @@ def cnn_network(input, actions, istraining):
         fc1 = tf.contrib.layers.flatten(conv3_n)
 
         # Fully connected layer (in tf contrib folder for now)
-        fc1 = tf.layers.dense(fc1, 300)
+        fc1 = tf.layers.dense(fc1, 500)
         fc2 = tf.layers.dense(actions1, 20,activation=tf.nn.relu)
         features = tf.concat([fc1,fc2], axis=1)
-        features = tf.reshape(features,shape=[-1,time_steps,320])
+        features = tf.layers.dense(features, 500)
+        features = tf.reshape(features, shape=[-1, time_steps, 500])
         features = tf.unstack(features, time_steps, axis=1)
         lstm_layer = rnn.BasicLSTMCell(num_units, forget_bias=1,name='lstm_output')
         outputs, _ = rnn.static_rnn(lstm_layer, features, dtype=tf.float32)
-        prediction = tf.layers.dense(inputs=outputs[-1], units=1,name='pred_fc',activation=tf.nn.relu)
+        prediction = tf.layers.dense(inputs=outputs[-1], units=n_classes, name='pred_fc', activation=tf.nn.relu)
         # prediction = tf.gather(prediction, [1], axis=)
             # Output layer, class prediction
         # prediction =tf.gather(prediction,[num_units-1],axis=0)
@@ -124,14 +126,16 @@ with tf.Session() as sess:
     obs = env.reset()
     obs = env.reset()
 
-    for i in range(300):
+    for i in range(420):
         count = 0
-        while count < 1:
-            action = np.random.uniform(-1, 1, 2)
-            obs, rew, done, _ = env.step(np.concatenate([action, np.random.uniform(1, 4, 1)]))
+        while count < 100:
+            action = np.random.uniform(-1, 1, 6)
+            action[2] = np.random.uniform(1, 4, 1)
+            action[5] = np.random.uniform(1, 4, 1)
+            obs, rew, done, _ = env.step(action)
 
             mb_obs.append(obs['observation'])
-            mb_action.append(action)
+            mb_action.append(np.delete(action, [2, 5], axis=0))
             if (done):
                 # print(rew, i)
                 count += 1
@@ -152,14 +156,15 @@ with tf.Session() as sess:
         y1 = []
         # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
 
-        for j in range(10):
-
+        for j in range(20):
+            Y_train = np.squeeze(Y_train)
             if i < 100:
-                los, prediction, _,_, _ = sess.run([loss, prediction, opt, update_ops, merged], feed_dict={x: X_train, y: Y_train, act:X_train_act, phase: True})
+                los, prediction_out, _, _, _ = sess.run([loss, prediction, opt, update_ops, merged], feed_dict={x: X_train, y: Y_train, act:X_train_act, phase: True})
                 if j==0:
-                    print(los)
+                    print(np.sqrt(los))
+                    # print(np.concatenate([prediction_out,Y_train,prediction_out-Y_train], axis = 1),np.sqrt(los))
             else:
-                if i == 100:
+                if i % 50 == 0:
                     print('test')
 
                 # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
@@ -177,5 +182,83 @@ with tf.Session() as sess:
     # np.save('X_train', X_train)
     # np.save('Y_train', Y_train)
 
+    saver.save(sess, './mass_predict_arti_cnn_2', global_step=20000)
 
-    saver.save(sess, './mass_predict_cnn_2', global_step=20000)
+##single block training
+# with tf.Session() as sess:
+#     train_writer = tf.summary.FileWriter('./train', sess.graph)
+#     sess.run(init)
+#     # for i in range(1000):
+#     #     batch_x,batch_y=mnist.train.next_batch(batch_size=batch_size)
+#     #
+#     #     batch_x=batch_x.reshape((batch_size,time_steps,n_input))
+#     #
+#     #     sess.run(opt, feed_dict={x: batch_x, y: batch_y})
+#     #     if i %10==0:
+#     #         acc=sess.run(accuracy,feed_dict={x:batch_x,y:batch_y})
+#     #         los,summary_out=sess.run([loss,merged],feed_dict={x:batch_x,y:batch_y})
+#     #         train_writer.add_summary(summary_out, i)
+#     #         print("For iter ",iter)
+#     #         print("Accuracy ",acc)
+#     #         print("Loss ",los)
+#     #         print("__________________")
+#     mb_obs, mb_action, y1, x1, x1_action = [], [], [], [], []
+#     los = 0
+#     obs = env.reset()
+#     obs = env.reset()
+#
+#     for i in range(120):
+#         count = 0
+#         while count < 100:
+#             action = np.random.uniform(-1, 1, 2)
+#             obs, rew, done, _ = env.step(np.concatenate([action, np.random.uniform(1, 4, 1)]))
+#
+#             mb_obs.append(obs['observation'])
+#             mb_action.append(action)
+#             if (done):
+#                 # print(rew, i)
+#                 count += 1
+#                 y1.append([obs['mass']])
+#                 x1.append(np.array(mb_obs[:-1]))
+#                 x1_action.append(np.array(mb_action[:-1]))
+#                 # join = np.concatenate([mb_obs[0], mb_obs[1]], axis=1)
+#                 # cv.imwrite('./train_imgs/eps_'+str(count+i*200)+'.jpg',join)
+#                 obs = env.reset()
+#                 mb_obs.append(obs['observation'])
+#                 mb_action.append(action)
+#                 mb_obs = []
+#                 mb_action = []
+#
+#         X_train = np.array(x1)
+#         X_train_act = np.array(x1_action)
+#         Y_train = np.array(y1)
+#         y1 = []
+#         # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+#
+#         for j in range(10):
+#
+#             if i < 100:
+#                 los, prediction_out, _, _, _ = sess.run([loss, prediction, opt, update_ops, merged], feed_dict={x: X_train, y: Y_train, act:X_train_act, phase: True})
+#                 if j==0:
+#                     print(np.concatenate([prediction_out,Y_train,prediction_out-Y_train], axis = 1),np.sqrt(los))
+#             else:
+#                 if i == 100:
+#                     print('test')
+#
+#                 # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+#                 los, _ = sess.run([loss, merged], feed_dict={x: X_train, y: Y_train, act: X_train_act, phase: False})
+#                 if j==0:
+#                     print(los)
+#                 break
+#
+#
+#         x1 = []
+#         x1_action = []
+#
+#     # X_test = np.array(x1[8000:])
+#     # Y_test = np.array(y1[8000:])
+#     # np.save('X_train', X_train)
+#     # np.save('Y_train', Y_train)
+#
+#
+#     saver.save(sess, './mass_predict_arti_cnn_2', global_step=20000)

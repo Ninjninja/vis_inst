@@ -4,6 +4,7 @@ import joblib
 import numpy as np
 import os.path as osp
 import tensorflow as tf
+import cv2 as cv
 from baselines import logger
 from collections import deque
 from baselines.common import explained_variance
@@ -66,7 +67,7 @@ class Model(object):
                   states_predict=None):
             advs = returns - values
             advs = (advs - advs.mean()) / (advs.std() + 1e-8)
-            td_map = {train_model.X:obs, A:actions[:,:-1], ADV:advs, R:returns, LR:lr,
+            td_map = {train_model.X:obs, A:actions, ADV:advs, R:returns, LR:lr,
                       CLIPRANGE: cliprange, OLDNEGLOGPAC: neglogpacs, OLDVPRED: values, MASS: mass}
             if states is not None:
                 td_map[train_model.S] = states
@@ -120,37 +121,62 @@ class Runner(object):
 
     def run(self):
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs, mb_mass, mb_history = [], [], [], [], [], [], [], []
+        obs2, act2 = [], []
         mb_states = self.states
         mb_states_predict = self.states_predict
         epinfos = []
-        self.env.reset()
+        self.obs[:] = self.env.reset()
+        np.random.seed(100)
         for _ in range(self.nsteps):
-            actions, values, self.states, self.states_predict, neglogpacs = self.model.step(self.obs, self.states,
+            self.obs = np.squeeze(self.obs)
+            actions, values, self.states, self.states_predict, neglogpacs = self.model.step(np.expand_dims(self.obs,0), self.states,
                                                                                             self.states_predict,
                                                                                             self.dones)
+
             mb_obs.append(self.obs.copy())
-            mb_actions.append(actions)
+
 
             mb_values.append(values)
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(self.dones)
-            # action = np.random.uniform(-1, 1, 2)
-            action = np.array(actions[0, :-1])
-            # actions = np.concatenate([action, np.random.uniform(0.5, 4, 1)])
+            action = np.random.uniform(-1, 1, 3)
+            # # action = np.array(actions[0, :-1])
+            # # action = action*0 + 0.5
+            # actions = action.copy()
+            action[0] = actions[0,0]
+            action[1] = actions[0,1]
+            action[2] = np.random.uniform(1, 4, 1)
+            actions = action.copy()
+            mb_actions.append(actions[:-1])
+
 
             if (_) % 3 == 2 and _ != 0:
-                history = np.array(mb_history[-2:])
-                prediction1 = predict(history.reshape([2, 5]))
-                actions[0, -1] = prediction1
 
-                print(prediction1)
+                history_obs = np.squeeze(np.array(mb_obs[-2:]))
+                # cv.imwrite('obs2.jpg', np.array(history_obs[1,:,:,:]))
+                history_act = np.squeeze(np.array(mb_actions[-2:]))
+                # prediction1 = predict(history_obs,history_act)
+                prediction1 = predict(np.array(obs2),np.array(act2))
+                obs2, act2 = [], []
+                actions[-1] = prediction1
+
+                # print(prediction1)
             obs, rewards, self.dones, infos = self.env.step(actions)
+            # if self.dones:
+                # print(rewards)
             self.obs[:] = obs['observation']
+
+            if not self.dones:
+                # print('actions:',actions)
+                act2.append(actions[:-1].copy())
+            if not self.dones:
+                obs2.append(np.squeeze(self.obs.copy()))
+
             if self.dones:
                 self.states_predict = self.model.initial_state
                 mb_history = []
-            else:
-                mb_history.append(np.concatenate([self.obs, action.reshape(1, 2)], axis=1)[:])
+            # else:
+                # mb_history.append(np.concatenate([self.obs, action.reshape(1, 2)], axis=1)[:])
 
             mass = obs['mass']
             for info in infos:
@@ -160,7 +186,8 @@ class Runner(object):
             mb_mass.append(mass)
 
         #batch of steps to batch of rollouts
-        mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
+        self.obs=np.expand_dims(self.obs, 0)
+        mb_obs = np.expand_dims(np.asarray(mb_obs, dtype=self.obs.dtype),0)
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
         mb_mass = np.asarray(mb_mass, dtype=np.float32)
         mb_actions = np.asarray(mb_actions)
@@ -236,6 +263,7 @@ def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
         obs, returns, masks, actions, values, neglogpacs, mass, states, states_predict, epinfos = runner.run()  # pylint: disable=E0632
+        actions = actions.reshape(-1,2)
         epinfobuf.extend(epinfos)
         mblossvals = []
         if states is None: # nonrecurrent version
@@ -259,7 +287,7 @@ def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
                     end = start + envsperbatch
                     mbenvinds = envinds[start:end]
                     mbflatinds = flatinds[mbenvinds].ravel()
-                    slices = (arr[mbflatinds] for arr in (obs, returns, masks, actions, values, neglogpacs, mass))
+                    slices = (arr[mbflatinds] for arr in (obs, returns, masks, np.reshape(np.expand_dims(actions,axis=1),[-1,2]), values, neglogpacs, mass))
                     mbstates = states[mbenvinds]
                     mbstates_predict = states_predict[mbenvinds]
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices, mbstates, mbstates_predict))

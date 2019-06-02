@@ -74,7 +74,7 @@ class VecEnv(ABC):
         pass
 
     def step(self, actions):
-        self.step_async(actions)
+        self.step_async([actions])
         return self.step_wait()
 
     def render(self):

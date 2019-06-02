@@ -72,8 +72,8 @@ class LstmPolicy(object):
         S = tf.placeholder(tf.float32, [nenv, nlstm * 2], name='state')  # states
         S_pred = tf.placeholder(tf.float32, [nenv, nlstm * 2], name='predict_state')  # states
         with tf.variable_scope("model", reuse=reuse):
-            # h = nature_cnn(X)
-            h = tf.nn.tanh(fc(X, 'fc1', 20))
+            h = nature_cnn(X)
+            # h = tf.nn.tanh(fc(X, 'fc1', 20))
             xs = batch_to_seq(h, nenv, nsteps)
             ms = batch_to_seq(M, nenv, nsteps)
             h5, snew = lstm(xs, ms, S, 'lstm1', nh=nlstm)
@@ -91,8 +91,8 @@ class LstmPolicy(object):
         neglogp0 = self.pd.neglogp(a0)
 
         with tf.variable_scope('predictor', reuse=reuse):
-            # h = nature_cnn(X)
-            h = tf.nn.relu(fc(X, 'fc1', 20))
+            h = nature_cnn(X)
+            # h = tf.nn.relu(fc(X, 'fc1', 20))
             xs = batch_to_seq(h, nenv, nsteps)
             ms = batch_to_seq(M, nenv, nsteps)
             h5, snew_pred = lstm(xs, ms, S_pred, 'lstm1', nh=nlstm)
